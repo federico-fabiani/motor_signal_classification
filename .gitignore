@@ -9,7 +9,7 @@
 /check_gpu.py
 /plots/*
 /old/
-/data/*
+# /data/*
 /log/*
 /classifier/temp/*
 /.idea/
