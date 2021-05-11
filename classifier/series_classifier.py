@@ -11,7 +11,7 @@ from utils.object_selector import *
 import matplotlib.pyplot as plt
 
 
-def split_sets(my_x, my_y, tr_split, val_split, shuffle=True, normalize=True, sparse_labels=True, labels=None):
+def split_sets(my_x, my_y, tr_split, val_split, shuffle=True, normalize=True, sparse_labels=True, labels=None, group_labels=True):
     from sklearn.preprocessing import LabelEncoder
     """x must be a numpy array where the first dimension is the number of inputs"""
 
@@ -23,7 +23,10 @@ def split_sets(my_x, my_y, tr_split, val_split, shuffle=True, normalize=True, sp
         for j, elem in enumerate(my_y):
             for i, new_label in enumerate(labels):
                 if str(elem) in new_label:
-                    new_y.append(i)
+                    if not group_labels:
+                        new_y.append(i)
+                    else:
+                        new_y.append(elem)
                     kept.append(j)
                     break
         my_y = new_y
@@ -62,7 +65,7 @@ if __name__ == '__main__':
     # np.random.seed(1105)
     FILE = 'MRec40'  # MRec40, ZRec50 or ZRec50_Mini
     PATH = f'../data/Objects Task DL Project/{FILE}.neo.mat'
-    EPOCH = 'hold'
+    EPOCH = 'hold'  # Select here the the epoch to be used for classification purpose (case insensitive)
 
     LR = 8e-3  # None
 
@@ -84,18 +87,20 @@ if __name__ == '__main__':
 
     selector = ObjectSelector()
     # classes is a list, in which each entry is one or more object composing a class
-    # classes = [
-    #     selector.get_shape('rings'),
-    #     selector.get_shape('boxes')
-    # ]
-    classes = selector.get_shape('mixed')
+    classes = [
+        selector.get_shape('mixed'),
+        # selector.get_shape('rings'),
+        # selector.get_shape('boxes'),
+        # selector.get_shape('balls'),
+        # selector.get_shape('cubes'),
+        #  selector.get_shape('strength'),
+        #  selector.get_shape('precision')
+    ]
     # classes = selector.get_non_special()
-    # classes = selector.get_shape('cubes')
-    # classes = [
-    #     selector.get_shape('strength'),
-    #     selector.get_shape('precision')
-    # ]
-    (x_train, y_train), (x_val, y_val), (x_test, y_test) = split_sets(X, Y, tr_split=0.7, val_split=0.15, labels=classes)
+
+    (x_train, y_train), (x_val, y_val), (x_test, y_test) = split_sets(X, Y, tr_split=0.7, val_split=0.15,
+                                                                      labels=classes,
+                                                                      group_labels=True)
 
     # data should be shaped as 196 channels x 100 samples x 3 units. Each entry is then the number of activation of a
     # specific neural unit (int [0-10]), in that window
@@ -115,6 +120,7 @@ if __name__ == '__main__':
     #     model.summary(print_fn=lambda x: fh.write(x + '\n'))
 
     if LR is None:
+        # To tune learning rate, select the last LR before loss explodes
         model.compile(loss='categorical_crossentropy', optimizer=keras.optimizers.Adam(lr=1e-3), metrics=['accuracy'])
         learner = ktrain.get_learner(model, train_data=(x_train, y_train), val_data=(x_val, y_val), batch_size=16)
         learner.lr_find()
