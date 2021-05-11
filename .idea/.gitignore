@@ -1,0 +1,15 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Datasource local storage ignored files
+/../../../../../:\Workspaces\PycharmProjects\motor_signal_classification\.idea/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+/check_gpu.py
+/plots/
+/old/
+/data/
+/log/
+/classifier/temp/
+/.idea/
