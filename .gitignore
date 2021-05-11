@@ -7,9 +7,9 @@
 # Editor-based HTTP Client requests
 /httpRequests/
 /check_gpu.py
-/plots/
+/plots/*
 /old/
-/data/
-/log/
-/classifier/temp/
+/data/*
+/log/*
+/classifier/temp/*
 /.idea/
