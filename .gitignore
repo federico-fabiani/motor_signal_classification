@@ -8,8 +8,8 @@
 /httpRequests/
 /check_gpu.py
 /plots/*
-/old/
+/old/*
 /data/*
 /log/*
 /classifier/temp/*
-/.idea/
+/.idea/*

@@ -14,7 +14,7 @@ class DataWrapper:
         self.blk = r.read_block()
         print(f'Number of segment loaded: {len(self.blk.segments)}')
 
-    def get_epochs(self, epoch, nbins=100):
+    def get_epochs(self, epoch, nbins=100, filter=True):
         """The function return a list of windows, with the brain activity associated to a specific task/epoch and its
          respective labels"""
         print(f'Selecting epoch {epoch} from correct segments...')
