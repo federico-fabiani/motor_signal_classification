@@ -8,45 +8,64 @@ import numpy as np
 from utils.data_processing import *
 from utils.object_selector import *
 import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import normalize
+from sklearn.preprocessing import LabelEncoder
 import logging
 from datetime import datetime
+import os
 
 
-def split_sets(my_x, my_y, tr_split, val_split, shuffle=True, normalize=True, sparse_labels=True, labels=None,
-               group_labels=True):
-    from sklearn.preprocessing import LabelEncoder
-    """x must be a numpy array where the first dimension is the number of inputs"""
+def clean_logs(log_path, keep=5):
+    logs = os.listdir(log_path)
+    while len(logs) > keep:
+        os.remove(log_path + '/' + logs[0])
+        logs.pop(0)
 
-    if labels is not None:
+
+def split_sets(my_x, my_y, tr_split, val_split, shuffle=True, normalize_sets=True, one_hot_encoder=None, labelled_classes=None,
+               normalize_classes=True):
+    # x must be a numpy array where the first dimension is the number of inputs
+
+    if labelled_classes is not None:
         # re-associate labels according to the desired rule, recall that each entry of labels array is the list of
         # objects composing that class
         new_y = []
-        kept = []
-        for j, elem in enumerate(my_y):
-            for i, new_label in enumerate(labels):
-                if str(elem) in new_label:
-                    if group_labels:
-                        new_y.append(i)
-                    else:
-                        new_y.append(elem)
-                    kept.append(j)
+        new_x = []
+        for y_idx, old_y in enumerate(my_y):
+            for (new_class_elements, new_class_label) in labelled_classes:
+                if type(new_class_elements) != list:
+                    new_class_elements = [new_class_elements]
+                if str(old_y) in new_class_elements:
+                    new_y.append(new_class_label)
+                    new_x.append(my_x[y_idx])
                     break
-        my_y = new_y
-        print(f'{len(kept)}/{len(my_x)} recordings kept belonging to {len(labels)} classes')
-        my_x = my_x[kept]
+        my_y = np.array(new_y)
+        logging.info(f'{len(new_x)}/{len(my_x)} recordings kept belonging to {len(labelled_classes)} classes')
+        my_x = np.array(new_x)
 
-    if normalize:
+    if normalize_sets:
+        logging.info('Dataset normalized')
         my_x = (my_x - my_x.min()) / (my_x.max() - my_x.min())
-    if sparse_labels:
-        label_encoder = LabelEncoder()
-        my_y = keras.utils.to_categorical(label_encoder.fit_transform(my_y))
     if shuffle:
+        logging.info('Dataset shuffled')
         rnd = np.random.permutation(len(my_y))
         my_x = my_x[rnd]
         my_y = my_y[rnd]
+    if normalize_classes:
+        # count how many times each class is present in the dataset
+        unique_y, n_repetition = np.unique(my_y, return_counts=True, axis=0)
+        logging.info(f'De-biasing dataset: (unique_label, n_repetitions)\n\t{list(zip(unique_y, n_repetition))}')
+        unique_y = unique_y.tolist()
+        keep = min(n_repetition)
+        for idx, old_y in enumerate(my_y):
+            if n_repetition[unique_y.index(old_y)] > keep:
+                my_y = np.delete(my_y, idx, 0)
+                my_x = np.delete(my_x, idx, 0)
+    if one_hot_encoder is not None:
+        logging.info('Dataset encoded with one-hot labels')
+        my_y = keras.utils.to_categorical(one_hot_encoder.fit_transform(my_y))
 
     # Checking for duplicates
     u, c = np.unique(my_x, return_counts=True, axis=0)
@@ -56,8 +75,9 @@ def split_sets(my_x, my_y, tr_split, val_split, shuffle=True, normalize=True, sp
 
     tr_idx = round(len(my_y) * tr_split)
     val_idx = round(len(my_y) * (tr_split + val_split))
-    return (my_x[:tr_idx], my_y[:tr_idx]), (my_x[tr_idx:val_idx], my_y[tr_idx:val_idx]), (
-        my_x[val_idx:], my_y[val_idx:])
+    return (my_x[:tr_idx], my_y[:tr_idx]), \
+           (my_x[tr_idx:val_idx], my_y[tr_idx:val_idx]), \
+           (my_x[val_idx:], my_y[val_idx:]),
 
 
 def EEGNet(features, window, n_outputs, lstm=False):
@@ -93,7 +113,8 @@ def average_weights(weights_list):
 def tune_learning_rate(model_to_tune):
     import ktrain
     # To tune learning rate, select the last LR before loss explodes
-    model_to_tune.compile(loss='categorical_crossentropy', optimizer=keras.optimizers.Adam(lr=1e-3), metrics=['accuracy'])
+    model_to_tune.compile(loss='categorical_crossentropy', optimizer=keras.optimizers.Adam(lr=1e-3),
+                          metrics=['accuracy'])
     learner = ktrain.get_learner(model, train_data=(x_train, y_train), val_data=(x_val, y_val), batch_size=16)
     learner.lr_find()
     learner.lr_plot()
@@ -103,8 +124,67 @@ def training_phase():
     pass
 
 
+def confusion_matrix(predictions, true_values, one_hot_encoder=None, plot=True):
+    """Horrible function, but it does its task"""
+    # i (rows) are true values and j (columns) are the prediction, therefore you can select on the row the object of
+    # interest and check on the columns how they were classified
+    if one_hot_encoder is None:
+        labels = set(np.concatenate(predictions, true_values))
+    else:
+        labels = list(one_hot_encoder.classes_)
+        predictions = one_hot_encoder.inverse_transform(predictions.argmax(axis=1))
+        true_values = one_hot_encoder.inverse_transform(true_values.argmax(axis=1))
+
+    conf_matrix = np.zeros(shape=(len(labels), len(labels)))
+    for h in range(len(true_values)):
+        row = labels.index(true_values[h])
+        col = labels.index(predictions[h])
+        conf_matrix[row][col] += 1
+
+    if plot:
+        conf_matrix_norm = normalize(conf_matrix, axis=1, norm='l1')
+        grouped_category = False if labels[0].isdigit() else True
+        if not grouped_category:
+            seps = []
+            past_label = labels[0][0]
+            for i, l in enumerate(labels):
+                if len(l) == 1 or l[0] != past_label:
+                    seps.append(int(i)-0.5)
+                past_label = l[0]
+        size = 8 + (outputs-6)/3
+        fig = plt.figure(figsize=(size, size))
+        ax = fig.add_subplot()
+        plt.title(f'{FILE}_{EPOCH}_{outputs}_Confusion Matrix')
+        im = plt.imshow(conf_matrix_norm, cmap='Reds')
+        plt.colorbar(im,fraction=0.046, pad=0.04)
+        for i in range(outputs):
+            for j in range(outputs):
+                c = conf_matrix[i][j]
+                if c > 0:
+                    ax.text(j, i, str(c), va='center', ha='center', c='white')
+        if not grouped_category:
+            ax.vlines(seps, -0.5, outputs-0.5, linewidth=2)
+            ax.hlines(seps, -0.5, outputs-0.5, linewidth=2)
+        ax.vlines([i+0.5 for i in range(outputs)], -0.5, outputs - 0.5, linewidth=0.5, colors='Gray')
+        ax.hlines([i+0.5 for i in range(outputs)], -0.5, outputs - 0.5, linewidth=0.5, colors='Gray')
+        plt.xticks(ticks=[i for i in range(outputs)], labels=label_encoder.classes_)
+        plt.yticks(ticks=[i for i in range(outputs)], labels=label_encoder.classes_)
+        plt.ylabel('object')
+        plt.xlabel('prediction')
+        plt.tight_layout()
+        plt.savefig(f'../plots/{FILE}_{EPOCH}_{outputs}_conf_matrix.png')
+        plt.show()
+    return conf_matrix
+
+
 if __name__ == '__main__':
-    # np.random.seed(1105)
+    np.random.seed(1805)
+    logging.basicConfig(
+        level=logging.getLevelName("INFO"),
+        format='%(message)s',
+        filename=f'../log/{datetime.now().strftime("%Y_%m_%d_%H_%M.log")}'
+    )
+    clean_logs('../log', keep=5)
 
     """Classification setting: Select the file from which takes measurements, the epoch of interest, and decide which 
     object could be considered as a class: classes is a list, in which each entry is one or more object composing a 
@@ -113,61 +193,56 @@ if __name__ == '__main__':
 
     FILE = 'MRec40'  # MRec40, ZRec50 or ZRec50_Mini
     PATH = f'../data/Objects Task DL Project/{FILE}.neo.mat'
-    EPOCH = 'hold'  # ['start', 'rest', 'motor', 'fixlon', 'fix', 'cue', 'mem', 'react', 'go', 'hold', 'rew', 'intert', 'end']
-
-    selector = ObjectSelector()
-    classes = [
-        selector.get_shape('mixed'),
-        # selector.get_shape('rings'),
-        # selector.get_shape('boxes'),
-        # selector.get_shape('balls'),
-        # selector.get_shape('cubes'),
-        #  selector.get_shape('strength'),
-        #  selector.get_shape('precision')
-    ]
-    classes, labels = selector.get_non_special()
-    # classes = None
-
-    logging.basicConfig(
-        level=logging.getLevelName("INFO"),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        filename=f'../log/{datetime.now().strftime("%Y_%m_%d_%H_%M.log")}'
-    )
-
+    EPOCH = 'hold'  # ['start', 'rest', 'motor', 'fixlon', 'fix', 'cue', 'mem', 'react', 'go', 'hold', 'rew',
+    # 'intert', 'end']
     LR = 7e-3  # None
     K = 10
 
-    """Load the desired measurements, from file or from cache if available"""
+
+    """ Use the object selector to select the shapes to use as classes; specify whether to group them by shape. The 
+    possible shapes are: 'mixed', 'rings', 'boxes', 'balls', 'cubes', 'strength', 'precision', 'vCylinder', 'hCylinder', 
+    'special', 'special2', 'strength', 'precision' """
+    selector = ObjectSelector()
+    # new_classes = selector.get_shapes(['balls', 'rings', 'boxes'], group_labels=False)
+    new_classes = selector.get_non_special(group_labels=False)
+    # new_classes = selector.get_all(group_labels=True)
+    logging.info(f'Number of classes: {len(new_classes)}\n\t{new_classes}')
+
+
+    """ Load the desired measurements, from file or from cache if available """
     logging.info(f'Loading dataset at {PATH}\nSelecting epoch {EPOCH}')
     try:
         X = np.load(f'temp/{FILE}_{EPOCH}_X.npy')
         Y = np.load(f'temp/{FILE}_{EPOCH}_Y.npy')
-        logging.info(f'Windows and objects loaded from chace;\n\tX - {X.shape}\n\tY - {Y.shape}')
+        logging.info(f'Windows and objects loaded from cache;\n\tX - {X.shape}\n\tY - {Y.shape}')
 
     except IOError:
         wrapper = DataWrapper()
         wrapper.load(PATH)
-        X, Y, _ = wrapper.get_epochs(EPOCH)
+        X, Y, _ = wrapper.get_epochs(EPOCH, nbins=25)
         np.save(f'temp/{FILE}_{EPOCH}_X.npy', X)
         np.save(f'temp/{FILE}_{EPOCH}_Y.npy', Y)
         logging.info('Windows and objects loaded from records;\n')
 
-    # print(f'Loaded {len(Y)} records')
-    # objects = set(Y)
+    logging.info(f'Loaded {len(Y)} records')
+    # objects = list(enumerate(set(Y)))
     # print(f'{len(objects)} CLASSES:\n\t{objects}')
 
-    """Split the windows and objects lists into train, validation and test set"""
-    (x_train, y_train), (x_val, y_val), (x_test, y_test) = split_sets(X, Y, tr_split=0.1, val_split=0.75,
-                                                                      labels=classes,
-                                                                      normalize=True,
-                                                                      group_labels=True)
+
+    """ Split the windows and objects lists into train, validation and test set """
+    label_encoder = LabelEncoder()
+    (x_train, y_train), (x_val, y_val), (x_test, y_test) = split_sets(X, Y, tr_split=0.7, val_split=0.15,
+                                                                      labelled_classes=new_classes,
+                                                                      normalize_sets=True,
+                                                                      normalize_classes=True,
+                                                                      one_hot_encoder=label_encoder)
     print('Train: ', x_train.shape, y_train.shape)
     print('Validation: ', x_val.shape, y_val.shape)
     print('Test: ', x_test.shape, y_test.shape)
 
     (_, channels, samples) = x_train.shape
     outputs = y_train.shape[1]
-
+    # t = label_encoder.inverse_transform(np.argmax(y_train, axis=1))
     model = EEGNet(channels, samples, outputs)
     model.summary()
 
@@ -191,7 +266,7 @@ if __name__ == '__main__':
     #    model.reset_states()
     model.compile(loss='categorical_crossentropy', optimizer=keras.optimizers.Adam(lr=LR), metrics=['accuracy'])
 
-    es = keras.callbacks.EarlyStopping(monitor='val_accuracy', min_delta=0.005, patience=10)
+    es = keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0.005, patience=5)
     checkpoint = keras.callbacks.ModelCheckpoint(f'temp/best_model.hdf5', monitor='val_loss',
                                                  save_best_only=True)
 
@@ -199,10 +274,10 @@ if __name__ == '__main__':
                         epochs=100, batch_size=16, verbose=1,
                         callbacks=[checkpoint, es])
 
-    # plt.plot(history.history['accuracy'], label='train')
+    plt.plot(history.history['accuracy'], label='train')
     plt.plot(history.history['val_accuracy'], label=f'val')
 
-    print(f'Best accuracy: {max(history.history["val_accuracy"])}\n')
+    # print(f'Best accuracy: {max(history.history["val_accuracy"])}\n')
     # fold_no = fold_no + 1
     # k_weights.append(model.get_weights())
 
@@ -217,26 +292,10 @@ if __name__ == '__main__':
 
     model.load_weights(f'temp/best_model.hdf5')
 
-    #model.set_weights(average_weights(k_weights))
-    #model.save_weights('temp/average_weights.hdf5')
-    _, accuracy = model.evaluate(x_test, y_test)
+    # model.set_weights(average_weights(k_weights))
+    # model.save_weights('temp/average_weights.hdf5')
     prediction = model.predict(x_test)
-    print(f'Test accuracy: {accuracy}')
+    confusion_matrix(prediction, y_test, one_hot_encoder=label_encoder, plot=True)
+    accuracy = accuracy_score(y_true=y_test.argmax(axis=1), y_pred=prediction.argmax(axis=1))
+    print(accuracy)
 
-    conf_matrix = confusion_matrix(y_test.argmax(axis=1), prediction.argmax(axis=1))
-    conf_matrix_norm = normalize(conf_matrix, axis=1, norm='l1')
-    print(conf_matrix)
-
-    fig, ax = plt.subplots()
-    plt.title(f'{FILE}_{EPOCH}_{outputs}_Confusion Matrix [Acc: {accuracy}]')
-    plt.imshow(conf_matrix_norm, cmap='Reds')
-    plt.colorbar()
-    for i in range(outputs):
-        for j in range(outputs):
-            c = conf_matrix[i][j]
-            if c > 0:
-                ax.text(j, i, str(c), va='center', ha='center', c='white')
-    plt.xticks(ticks=[i for i in range(outputs)], labels=labels)
-    plt.yticks(ticks=[i for i in range(outputs)], labels=labels)
-    plt.savefig(f'../plots/{FILE}_{EPOCH}_{outputs}_conf_matrix.png')
-    plt.show()
