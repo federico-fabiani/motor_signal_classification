@@ -1,0 +1,48 @@
+{
+    "cnn": {
+        "batch_size": 24.0,
+        "frac_dropout": 0.35000000000000003,
+        "kernel_size_1": 190.0,
+        "kernel_size_2": 12.0,
+        "n_epochs": 45.0,
+        "num_filters": 512.0,
+        "pool_size": 2.0
+    },
+    "dnn": {
+        "batch_size": 8.0,
+        "frac_dropout": 0.1,
+        "n_epochs": 35.0,
+        "num_units": 512.0
+    },
+    "rnn": {
+        "batch_size": 24.0,
+        "frac_dropout": 0.35000000000000003,
+        "n_epochs": 45.0,
+        "num_units": 96.0
+    },
+    "gru": {
+        "batch_size": 4.0,
+        "frac_dropout": 0.45,
+        "n_epochs": 45.0,
+        "num_units": 160.0
+    },
+    "lstm": {
+        "batch_size": 4.0,
+        "frac_dropout": 0.35000000000000003,
+        "n_epochs": 40.0,
+        "num_units": 128.0
+    },
+    "eegnet2": {
+        "batch_size": 12.0,
+        "frac_dropout": 0.25,
+        "n_epochs": 45.0,
+        "n_filters_1": 44.0,
+        "n_filters_2": 56.0,
+        "n_filters_3": 60.0,
+        "n_neurons": 500.0,
+        "n_units": 64.0,
+        "size_1": 128.0,
+        "size_2": 3.0,
+        "size_3": 3.0
+    }
+}

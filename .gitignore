@@ -13,3 +13,5 @@
 /log/*
 /classifier/temp/*
 /.idea/*
+/results/*
+/results/hyperopt/*
