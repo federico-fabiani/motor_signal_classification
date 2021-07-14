@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import InputLayer, Reshape, Permute, Dense, Dropout, SimpleRNN, GRU, LSTM, Conv2D, \
-    MaxPool2D, Flatten, TimeDistributed, AvgPool2D, Conv1D, AvgPool1D
+from tensorflow.keras.layers import Layer, InputLayer, Reshape, Permute, Dense, Dropout, SimpleRNN, GRU, LSTM, Conv2D, \
+    MaxPool2D, Flatten, TimeDistributed, AvgPool2D, Conv1D, AvgPool1D, MultiHeadAttention, LayerNormalization, Embedding
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.activations import elu, relu
 from math import ceil
@@ -523,13 +523,15 @@ class EEGNet:
         if x_val is not None:
             checkpoint = ModelCheckpoint(f'{TEMP_FOLDER}/{self.name}_best.hdf5', monitor='val_loss',
                                          save_best_only=True)
-            self.model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batch_size,
-                           callbacks=[checkpoint],
+            es = EarlyStopping('val_loss', min_delta=0.01, patience=10)
+            history = self.model.fit(x_train, y_train, validation_data=(x_val, y_val), batch_size=batch_size,
+                           callbacks=[checkpoint, es],
                            epochs=num_epochs, verbose=verbose)
             self.model.load_weights(f'{TEMP_FOLDER}/{self.name}_best.hdf5')
         else:
-            self.model.fit(x_train, y_train, batch_size=batch_size, epochs=num_epochs, verbose=verbose)
-
+            history = self.model.fit(x_train, y_train, batch_size=batch_size, epochs=num_epochs, verbose=verbose)
+        return history
+    
     def predict(self, x_test):
         """
         Predict outcomes using trained DenseNN Decoder
@@ -566,7 +568,7 @@ class EEGNetv2:
     dropout: decimal, optional, default 0
         Proportion of units that get dropped out
     """
-    def __init__(self, channels, outputs, filters=10, filters_size=None, dropout=0, units=16, neurons=0):
+    def __init__(self, channels, outputs, filters=10, filters_size=None, dropout=0, recurrent_layer='lstm', units=16, neurons=0):
         self.name = 'eeg_net_v2'
         if type(filters) is not list:
             filters = [filters]
@@ -595,7 +597,10 @@ class EEGNetv2:
         self.model.add(TimeDistributed(AvgPool1D(2)))
         self.model.add(TimeDistributed(Flatten()))
         # Extract temporal features
-        self.model.add(LSTM(units))
+        if recurrent_layer == 'lstm':
+            self.model.add(LSTM(units))
+        elif recurrent_layer == 'gru':
+            self.model.add(GRU(units))
         self.model.add(Flatten())
         # Add output layer
         if neurons != 0:
@@ -664,4 +669,5 @@ class EEGNetv2:
 
     def reset_weights(self):
         self.model.set_weights(self.initial_weights)
+
 

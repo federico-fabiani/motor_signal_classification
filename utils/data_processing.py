@@ -61,8 +61,10 @@ class DataWrapper:
                     boundaries.append(limits)
                 targets.append(seg.annotations['obj'])
                 duration.append(limits[1] - limits[0])
+            if len(targets) != len(spikes_list):
+                print(i)
         logging.info(f'{len(discarded)} discarded segments: {discarded}')
-
+        print(f'{len(discarded)} filtered out; {len(targets)} left')
         duration = np.array(duration)
         mu_t = duration.mean()
         sigma_t = duration.std()
@@ -72,26 +74,32 @@ class DataWrapper:
         if nbins is None:
             average_bins = round(mu_t / bin_length)
             logging.info(f'Number of bins having average duration {bin_length}s: {average_bins}')
-
+            targets2 = []
+            discarded = 0
             for i in range(len(targets)):
-                sparse_array = BinnedSpikeTrain(spikes_list[i], n_bins=average_bins, t_start=boundaries[i][0],
-                                                t_stop=boundaries[i][1])
-                tasks.append(sparse_array.to_array().astype('float32'))
-                if epoch.lower() == 'all':
-                    epochs = []
-                    evt = list(boundaries[i][2].times)
-                    labels = boundaries[i][2].labels
-                    step = duration[i]/average_bins*quantities.s
-                    for bin_i in range(average_bins):
-                        t = evt[0]+step*(bin_i+1)
-                        last_state = bisect(evt, t) - 1
-                        epochs.append(labels[last_state])
+                try:
+                    sparse_array = BinnedSpikeTrain(spikes_list[i], n_bins=average_bins, t_start=boundaries[i][0],
+                                                    t_stop=boundaries[i][1])
+                    tasks.append(sparse_array.to_array().astype('float32'))
+                    targets2.append(targets[i])
+                    if epoch.lower() == 'all':
+                        epochs = []
+                        evt = list(boundaries[i][2].times)
+                        labels = boundaries[i][2].labels
+                        step = duration[i]/average_bins*quantities.s
+                        for bin_i in range(average_bins):
+                            t = evt[0]+step*(bin_i+1)
+                            last_state = bisect(evt, t) - 1
+                            epochs.append(labels[last_state])
 
-                    trial_epochs.append(epochs)
-                else:
-                    trial_epochs.append(boundaries[i][3])
-
-        return np.array(tasks), targets, trial_epochs
+                        trial_epochs.append(epochs)
+                    else:
+                        trial_epochs.append(boundaries[i][2])
+                except ValueError:
+                    discarded += 1
+                    continue
+        print(f'{discarded} lost due to warning; {len(targets2)} left')
+        return np.array(tasks), np.array(targets2), trial_epochs
 
     def get_epoch_plus_noise(self, target_epoch='go', bin_size_ms=40, filter=True, crop=True):
         """ The function return a list of windows of measurements of the brain activity, each one associated to the epoch
@@ -203,30 +211,34 @@ class ObjectSelector:
         return list(zip(result, names))
 
 
-def load_dataset(file_path, epoch, nbins=None, bin_length=0.04):
+def load_dataset(file_path, epoch, nbins=None, bin_length=0.04, load_states=False):
     """ Load the desired measurements, from file or from cache if available """
     file = file_path.split('/')[-1].split('.')[0]
     logging.info(f'Loading dataset at {file_path}\nSelecting epoch {epoch}')
+    TEMP = 'D:\\Workspaces\\PycharmProjects\\motor_signal_classification\\classifier\\temp'
     try:
-        my_x = np.load(f'temp/{file}_{epoch}_X.npy')
-        my_y = np.load(f'temp/{file}_{epoch}_Y.npy')
-        my_states = np.load(f'temp/{file}_{epoch}_states.npy')
+        my_x = np.load(f'{TEMP}/{file}_{epoch}_X.npy')
+        my_y = np.load(f'{TEMP}/{file}_{epoch}_Y.npy')
+        if load_states:
+            my_states = np.load(f'{TEMP}/{file}_{epoch}_states.npy')
+        else:
+            my_states = None
         logging.info(f'Windows and objects loaded from cache;\n\tX - {my_x.shape}\n\tY - {my_y.shape}')
 
     except IOError:
         my_wrapper = DataWrapper()
         my_wrapper.load(file_path)
         my_x, my_y, my_states = my_wrapper.get_epochs(epoch, nbins=nbins, bin_length=bin_length)
-        np.save(f'temp/{file}_{epoch}_X.npy', my_x)
-        np.save(f'temp/{file}_{epoch}_Y.npy', my_y)
-        np.save(f'temp/{file}_{epoch}_states.npy', my_states)
+        np.save(f'{TEMP}/{file}_{epoch}_X.npy', my_x)
+        np.save(f'{TEMP}/{file}_{epoch}_Y.npy', my_y)
+        np.save(f'{TEMP}/{file}_{epoch}_states.npy', my_states)
         logging.info('Windows and objects loaded from records;\n')
 
     logging.info(f'Loaded {len(my_y)} records')
     return my_x, my_y, my_states
 
 
-def preprocess_dataset(my_x, my_y, labelled_classes, one_hot_encoder, norm_sets=True, shuffle=True, norm_classes=True):
+def preprocess_dataset(my_x, my_y, labelled_classes, one_hot_encoder=None, norm_sets=False, shuffle=True):
     if labelled_classes is not None:
         # re-associate labels according to the desired rule, recall that each entry of labels array is the list of
         # objects composing that class
@@ -242,7 +254,7 @@ def preprocess_dataset(my_x, my_y, labelled_classes, one_hot_encoder, norm_sets=
                     break
         my_y = np.array(new_y)
         logging.info(f'{len(new_x)}/{len(my_x)} recordings kept belonging to {len(labelled_classes)} classes')
-        my_x = np.array(new_x)
+        my_x = np.array(new_x, dtype='float32')
 
     if norm_sets:
         logging.info('Dataset normalized')
@@ -252,7 +264,16 @@ def preprocess_dataset(my_x, my_y, labelled_classes, one_hot_encoder, norm_sets=
         rnd = np.random.permutation(len(my_y))
         my_x = my_x[rnd]
         my_y = my_y[rnd]
-    if norm_classes:
+    if one_hot_encoder is not None:
+        logging.info('Dataset encoded with one-hot labels')
+        my_y = to_categorical(one_hot_encoder.fit_transform(my_y))
+
+    return my_x, my_y
+
+
+def split_sets(my_x, my_y, tr_split, val_split, normalize_classes=False, repetitions=1):
+    """ Split the windows and objects lists into train, validation and test set """
+    if normalize_classes:
         # count how many times each class is present in the dataset
         unique_y, n_repetition = np.unique(my_y, return_counts=True, axis=0)
         logging.info(f'De-biasing dataset: (unique_label, n_repetitions)\n\t{list(zip(unique_y, n_repetition))}')
@@ -262,15 +283,7 @@ def preprocess_dataset(my_x, my_y, labelled_classes, one_hot_encoder, norm_sets=
             if n_repetition[unique_y.index(old_y)] > keep:
                 my_y = np.delete(my_y, idx, 0)
                 my_x = np.delete(my_x, idx, 0)
-    if one_hot_encoder is not None:
-        logging.info('Dataset encoded with one-hot labels')
-        my_y = to_categorical(one_hot_encoder.fit_transform(my_y))
 
-    return my_x, my_y
-
-
-def split_sets(my_x, my_y, tr_split, val_split, repetitions=1):
-    """ Split the windows and objects lists into train, validation and test set """
     # Checking for duplicates
     u, c = np.unique(my_x, return_counts=True, axis=0)
     dup = u[c > 1]
@@ -303,12 +316,12 @@ def split_sets(my_x, my_y, tr_split, val_split, repetitions=1):
     # logging.info(f'Validation: {my_x_val.shape}, {my_y_val.shape}')
     # logging.info(f'Test: {my_x_test.shape}, {my_y_test.shape}')
 
-    return (my_x_train, my_y_train), \
-           (my_x_val, my_y_val), \
-           (my_x_test, my_y_test),
+    return (np.squeeze(my_x_train), np.squeeze(my_y_train)), \
+           (np.squeeze(my_x_val), np.squeeze(my_y_val)), \
+           (np.squeeze(my_x_test), np.squeeze(my_y_test)),
 
 
-def expanding_window_preprocessing(my_x, my_y, my_states, one_hot_encoder, norm_classes=False):
+def expanding_window_preprocessing(my_x, my_y, my_states, one_hot_encoder):
     result_x = []
     result_y = []
     result_state = []
@@ -317,33 +330,21 @@ def expanding_window_preprocessing(my_x, my_y, my_states, one_hot_encoder, norm_
         for time_step in range(n_steps-1):
             padded_window = np.zeros((n_channels, n_steps-time_step-2))
             padded_window = np.hstack((padded_window, my_x[trial][:, :time_step+1]))
-            result_x.append(padded_window)
+            result_x.append(padded_window.astype('float32'))
             result_y.append(my_y[trial])
             result_state.append(my_states[trial][time_step+1])
 
-    if norm_classes:
-        # count how many times each class is present in the dataset
-        unique_state, n_repetition = np.unique(result_state, return_counts=True, axis=0)
-        logging.info(f'De-biasing dataset: (unique_label, n_repetitions)\n\t{list(zip(unique_state, n_repetition))}')
-        unique_state = unique_state.tolist()
-        keep = min(n_repetition)
-        for idx, old_state in enumerate(my_y):
-            if n_repetition[unique_state.index(old_state)] > keep:
-                result_state = np.delete(result_state, idx, 0)
-                result_y = np.delete(result_y, idx, 0)
-                result_x = np.delete(result_x, idx, 0)
-
     result_state = to_categorical(one_hot_encoder.fit_transform(result_state))
-    return np.array(result_x), np.array(result_y), result_state
+    return np.array(result_x, dtype='float32'), np.array(result_y), result_state
 
 
 if __name__ == '__main__':
-    FILE = 'ZRec50_Mini'  # MRec40, ZRec50 or ZRec50_Mini
+    FILE = 'MRec40'  # MRec40, ZRec50 or ZRec50_Mini
     PATH = f'../data/Objects Task DL Project/{FILE}.neo.mat'
 
     wrapper = DataWrapper()
     wrapper.load(PATH)
-    x, y, t = wrapper.get_epochs('Hold')
+    x, y, t = wrapper.get_epochs('all')
     # x, y = wrapper.get_epoch_plus_noise()
     print(y)
     # print(f'Mean duration: {np.mean(t)} - std: {np.std(t)}')

@@ -15,3 +15,5 @@
 /.idea/*
 /results/*
 /results/hyperopt/*
+/classifier/.ipynb_checkpoints/*
+/demonstation/*
