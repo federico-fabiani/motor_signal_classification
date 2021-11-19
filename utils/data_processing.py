@@ -99,7 +99,7 @@ class DataWrapper:
                     discarded += 1
                     continue
         print(f'{discarded} lost due to warning; {len(targets2)} left')
-        return np.array(tasks), np.array(targets2), trial_epochs
+        return np.array(tasks), np.array(targets2), trial_epochs, duration
 
     def get_epoch_plus_noise(self, target_epoch='go', bin_size_ms=40, filter=True, crop=True):
         """ The function return a list of windows of measurements of the brain activity, each one associated to the epoch
@@ -211,7 +211,7 @@ class ObjectSelector:
         return list(zip(result, names))
 
 
-def load_dataset(file_path, epoch, nbins=None, bin_length=0.04, load_states=False):
+def load_dataset(file_path, epoch, nbins=None, bin_length=0.04):
     """ Load the desired measurements, from file or from cache if available """
     file = file_path.split('/')[-1].split('.')[0]
     logging.info(f'Loading dataset at {file_path}\nSelecting epoch {epoch}')
@@ -219,23 +219,22 @@ def load_dataset(file_path, epoch, nbins=None, bin_length=0.04, load_states=Fals
     try:
         my_x = np.load(f'{TEMP}/{file}_{epoch}_X.npy')
         my_y = np.load(f'{TEMP}/{file}_{epoch}_Y.npy')
-        if load_states:
-            my_states = np.load(f'{TEMP}/{file}_{epoch}_states.npy')
-        else:
-            my_states = None
+        my_states = np.load(f'{TEMP}/{file}_{epoch}_states.npy')
+        my_duration = np.load(f'{TEMP}/{file}_{epoch}_duration.npy')
         logging.info(f'Windows and objects loaded from cache;\n\tX - {my_x.shape}\n\tY - {my_y.shape}')
 
     except IOError:
         my_wrapper = DataWrapper()
         my_wrapper.load(file_path)
-        my_x, my_y, my_states = my_wrapper.get_epochs(epoch, nbins=nbins, bin_length=bin_length)
+        my_x, my_y, my_states, my_duration = my_wrapper.get_epochs(epoch, nbins=nbins, bin_length=bin_length)
         np.save(f'{TEMP}/{file}_{epoch}_X.npy', my_x)
         np.save(f'{TEMP}/{file}_{epoch}_Y.npy', my_y)
         np.save(f'{TEMP}/{file}_{epoch}_states.npy', my_states)
+        np.save(f'{TEMP}/{file}_{epoch}_duration.npy', my_duration)
         logging.info('Windows and objects loaded from records;\n')
 
     logging.info(f'Loaded {len(my_y)} records')
-    return my_x, my_y, my_states
+    return my_x, my_y, my_states, my_duration
 
 
 def preprocess_dataset(my_x, my_y, labelled_classes, one_hot_encoder=None, norm_sets=False, shuffle=True):

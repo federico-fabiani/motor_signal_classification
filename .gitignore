@@ -6,7 +6,7 @@
 /dataSources.local.xml
 # Editor-based HTTP Client requests
 /httpRequests/
-/check_gpu.py
+/classifier/check_gpu.py
 /plots/*
 /old/*
 /data/*

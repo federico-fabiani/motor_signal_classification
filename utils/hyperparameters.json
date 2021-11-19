@@ -1,59 +1,57 @@
 {
-    "cnn": {
+    "ensemble": {
+        "activation": "elu",
         "batch_size": 20.0,
-        "frac_dropout": 0.30000000000000004,
-        "kernel_size_1": 500.0,
-        "kernel_size_2": 3.0,
-        "n_epochs": 25.0,
-        "num_filters": 160.0,
-        "pool_size": 2.0
-    },
-    "dnn": {
-        "batch_size": 16.0,
-        "frac_dropout": 0.45,
-        "n_epochs": 30.0,
-        "num_units": 608.0
-    },
-    "rnn": {
-        "batch_size": 20.0,
-        "frac_dropout": 0.4,
-        "n_epochs": 35.0,
-        "num_units": 384.0
+        "frac_dropout_1": 0.25,
+        "frac_dropout_2": 0.4,
+        "n_epochs": 50.0,
+        "n_filters": 60.0,
+        "n_neurons": 448.0,
+        "n_units": 80.0,
+        "pooling_layer": "max",
+        "recurrent_layer": "lstm",
+        "size": 208.0
     },
     "gru": {
-        "batch_size": 16.0,
-        "frac_dropout": 0.5,
-        "n_epochs": 40.0,
-        "num_units": 192.0
+        "batch_size": 24.0,
+        "frac_dropout": 0.05,
+        "n_epochs": 25.0,
+        "num_units": 240.0
     },
     "lstm": {
-        "batch_size": 24.0,
-        "frac_dropout": 0.45,
-        "n_epochs": 45.0,
-        "num_units": 224.0
+        "batch_size": 20.0,
+        "frac_dropout": 0.05,
+        "n_epochs": 25.0,
+        "num_units": 256.0
     },
-    "eegnet2": {
+    "rnn": {
+        "batch_size": 8.0,
+        "frac_dropout": 0.5,
+        "n_epochs": 30.0,
+        "num_units": 256.0
+    },
+    "dnn": {
+        "batch_size": 18.0,
+        "frac_dropout": 0.25,
+        "n_epochs": 15.0,
+        "num_units": 608.0
+    },
+    "cnn": {
         "batch_size": 20.0,
         "frac_dropout": 0.4,
-        "n_epochs": 50.0,
-        "n_filters_1": 32.0,
-        "n_filters_2": 40.0,
-        "n_filters_3": 0.0,
-        "n_neurons": 192.0,
-        "n_units": 32.0,
-        "recurrent_layer": "lstm",
-        "size_1": 128.0,
-        "size_2": 5.0,
-        "size_3": 2.0
+        "kernel_size_1": 500.0,
+        "kernel_size_2": 6.0,
+        "n_epochs": 25.0,
+        "num_filters": 192.0,
+        "pool_size": 2.0
     },
-    "transformer": {
-        "batch_size": 12.0,
-        "frac_dropout": 0.25,
-        "n_epochs": 45.0,
-        "maxlen": 200,
-        "vocab_size": 2000,
-        "embed_dim": 32,
-        "num_heads": 2,
-        "ff_dim": 32
+    "ensemble_online": {
+        "batch_size": 8.0,
+        "frac_dropout_1": 0.30000000000000004,
+        "frac_dropout_2": 0.30000000000000004,
+        "n_filters": 40.0,
+        "n_neurons": 64.0,
+        "n_units": 112.0,
+        "size": 16.0
     }
 }
